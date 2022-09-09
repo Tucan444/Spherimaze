@@ -1,0 +1,219 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+struct Circle {
+    float3 center;
+    float r;
+    float4 color;
+};
+
+struct Triangle {
+    float3 a;
+    float3 b;
+    float3 c;
+    float3 midAB;
+    float3 midBC;
+    float3 midCA;
+    float4 color;
+};
+
+struct Quad {
+    float3 a;
+    float3 b;
+    float3 c;
+    float3 d;
+
+    float3 midAB;
+    float3 midBC;
+    float3 midCD;
+    float3 midDA;
+
+    float4 color;
+};
+
+struct PointLight {
+    int layer;
+    float3 pos;
+    float power;
+    float top;
+    float slope;
+    float4 color;
+};
+
+struct NlPointLight {
+    int layer;
+    int fallout;
+    float3 pos;
+    float radius;
+    float power;
+    float4 color;
+};
+
+// lights
+float4 ambientLight;
+float gamma;
+StructuredBuffer<PointLight> lights;
+uint lLength;
+
+StructuredBuffer<NlPointLight> nlLights;
+uint nllLength;
+
+StructuredBuffer<int> lightLayers;
+Texture2DArray lightmaps;
+SamplerState samplerlightmaps;
+float2 lightmapStep;
+int lightmapsDepth;
+
+// objects
+StructuredBuffer<Circle> circles;
+
+StructuredBuffer<Triangle> triangles;
+
+StructuredBuffer<Quad> quads;
+
+// layers
+StructuredBuffer<int> layerNums;
+StructuredBuffer<float3> layers;
+uint layLength;
+
+// bg
+float4 bgColor;
+float4 orthoBg;
+bool useBgTexture = false;
+Texture2D bgTexture;
+float2 bgStep;
+
+// rays
+float4x4 screenQ;
+StructuredBuffer<float3> rays;
+int2 resolution;
+RWTexture2D<float4> Result;
+
+// functions
+
+// converts cartesian to spherical
+float2 Cartesian2Spherical(float3 v) {
+    float2 position = float2(0, 0);
+    float3 v_ = float3(v[0], v[1], v[2]);
+
+    v_ /= length(v_);
+    position[1] = asin(v_[1]);
+    float cosOfz = cos(v_[1]);
+    position[0] = atan2(v_[2] / cosOfz, v_[0] / cosOfz);
+
+    return position;
+}
+
+// gets bg color
+float4 getBgColor(float2 v) {
+    v[0] += 3.1416;//*2*(v[0] < 0);
+    v[1] += 1.5707;
+    float4 finalBgColor = bgColor;
+    if (useBgTexture) {
+        int2 texPos = int2((int)(v.x / bgStep.x), (int)(v.y / bgStep.y));
+        finalBgColor *= bgColor.a;
+        finalBgColor += bgTexture[texPos] * (1-bgColor.a);
+    }
+    return finalBgColor;
+}
+
+// gets light color from lightmap
+float4 getLightmapColor(float2 v, int layer) {
+    v[0] += 3.1416;
+    v[1] += 1.5707;
+
+    float2 texPos = float2(v.x * lightmapStep.x, v.y * lightmapStep.y);
+    float4 lightmapColor = float4(0, 0, 0, 0);
+
+    for (int i = 0; i < lightmapsDepth; i++) {
+        lightmapColor += lightmaps.SampleLevel(samplerlightmaps, float3(texPos, i), 0).rgba * !(layer > lightLayers[i]);
+    }
+
+    return lightmapColor;
+}
+
+// get the light level
+float4 computeLighting(float3 v, float2 sv, int layer) {
+    float4 l = ambientLight;
+
+    // computing linear point lights
+    for (int i = 0; i < lLength; i++) {
+        l += !(layer > lights[i].layer) * lights[i].color * min(lights[i].power, max(0, lights[i].top - (acos(dot(v, lights[i].pos)) * lights[i].slope)));
+    }
+
+    // computing non linear point lights
+    for (int j = 0; j < nllLength; j++) {
+        l += !(layer > nlLights[j].layer) * nlLights[j].color * (nlLights[j].power / pow(max(1, acos(dot(v, nlLights[j].pos)) + 1 - nlLights[j].radius), nlLights[j].fallout));
+    }
+
+    l += getLightmapColor(sv, layer);
+
+    l = pow(l, gamma);
+    return l;
+}
+
+// collision with circle
+bool collidePointCircle(float3 v, Circle c) {
+    return acos(dot(v, c.center)) < c.r;
+}
+
+// collision with triangle
+bool collidePointTriangle(float3 v, Triangle t) {
+    return ((dot(t.a, v - t.midAB) <= 0) && (dot(t.b, v - t.midBC) <= 0) && (dot(t.c, v - t.midCA) <= 0));
+}
+
+// collision with quad
+bool collidePointQuad(float3 v, Quad q) {
+    return ((dot(q.a, v - q.midAB) <= 0) && (dot(q.b, v - q.midBC) <= 0) && (dot(q.c, v - q.midCD) <= 0) && (dot(q.d, v - q.midDA) <= 0));
+}
+
+bool isOut(float3 v) {
+    return (abs(v.x) + abs(v.y) + abs(v.z)) > 5;
+}
+
+// main function
+[numthreads(32,32,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    // TODO: insert actual code here!
+    float3 ray = mul(screenQ, float4(rays[(resolution[1] * id.x) + id.y], 0)).xyz;
+    float2 raySph = Cartesian2Spherical(ray);
+
+    float4 finalColor = getBgColor(raySph);
+    bool collided = false;
+    int maxLayer = -99999;
+
+    for (int u = 0; u < layLength; u++) {
+        // circles
+        for (int i = layers[u][0]; i < (int)layers[u+1][0]; i++) {
+            collided = collidePointCircle(ray, circles[i]);
+            finalColor = (collided * circles[i].color) + (!collided * finalColor);
+            maxLayer = (collided * layerNums[u]) + (!collided * maxLayer);
+        }
+
+        // triangles
+        for (int j = layers[u][1]; j < (int)layers[u+1][1]; j++) {
+            collided = collidePointTriangle(ray, triangles[j]);
+            finalColor = (collided * triangles[j].color) + (!collided * finalColor);
+            maxLayer = (collided * layerNums[u]) + (!collided * maxLayer);
+        }
+
+        // quads
+        for (int k = layers[u][2]; k < (int)layers[u+1][2]; k++) {
+            collided = collidePointQuad(ray, quads[k]);
+            finalColor = (collided * quads[k].color) + (!collided * finalColor);
+            maxLayer = (collided * layerNums[u]) + (!collided * maxLayer);
+        }
+    }
+    
+    // computing lighting
+    finalColor *= computeLighting(ray, raySph, maxLayer);
+
+    // checking if ray out
+    collided = isOut(ray);
+    finalColor = (collided * orthoBg) + (!collided * finalColor);
+
+    finalColor.a = 1;
+
+    Result[id.xy] = finalColor;
+}
