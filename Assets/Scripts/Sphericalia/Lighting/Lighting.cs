@@ -86,6 +86,7 @@ public class Lighting : MonoBehaviour
         for (int i = 0; i <pointLights.Length; i++) {
             if (pointLights[i].bakedLighting) {lights.Add(pointLights[i]);}
         }
+        if (lights.Count == 0) {Debug.Log("no lights to bake, stopping"); return;}
 
         LLayerComparer llc = new LLayerComparer();
         lights.Sort(llc);

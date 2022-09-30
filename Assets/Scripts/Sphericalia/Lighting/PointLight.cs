@@ -48,6 +48,11 @@ public class PointLight : MonoBehaviour
         if (!linear) {Gizmos.DrawWireSphere(position, power * 0.2f);} else {Gizmos.DrawWireSphere(position, boundary * 0.2f);}
     }
 
+    public void SetPos(Vector2 sph) {
+        sphPosition = sph;
+        Setup();
+    }
+
     public void Move(Vector3 target, float angle) {
         Quaternion q = Quaternion.AngleAxis(angle, Vector3.Cross(position, target));
         MoveQ(q);
