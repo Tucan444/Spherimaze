@@ -8,6 +8,7 @@ public class ConvexCollider
     Vector3[] points;
     Vector3[] normals;
     Vector3[] mids;
+    float checkLen = 1;
 
     public Color c;
     public TriangleS[] triangles;
@@ -24,6 +25,7 @@ public class ConvexCollider
         mids = new Vector3[points.Length];
         normals = new Vector3[points.Length];
         center = ComputeCenter(points_);
+        checkLen = su.SphDistance(center, points[0]);
         c = c_;
         ComputeNormalsAndMids();
 
@@ -47,6 +49,7 @@ public class ConvexCollider
         mids = new Vector3[points.Length];
         normals = new Vector3[points.Length];
         center = ComputeCenter(points_);
+        checkLen = su.SphDistance(center, points[0]);
         c = c_;
         ComputeNormalsAndMids();
 
@@ -71,6 +74,7 @@ public class ConvexCollider
         points = c_.points;
         normals = c_.normals;
         mids = c_.mids;
+        checkLen = c_.checkLen;
 
         invisible = c_.invisible;
         empty = c_.empty;
@@ -81,6 +85,7 @@ public class ConvexCollider
     }
 
     public void MoveRotate(Quaternion q) {
+        center = q * center;
         for (int i = 0; i < points.Length; i++) {
             points[i] = q * points[i];
             normals[i] = q * normals[i];
@@ -213,12 +218,15 @@ public class ConvexCollider
         return true;
     }
 
-    public bool CollideCircle(Vector3 center, float r) {
+    public bool CollideCircle(Vector3 center_, float r) {
         if (empty) {return false;}
-        if (CollidePoint(center)) {return true;}
+ 
+        if (su.SphDistance(center, center_) <= checkLen+r) {
+            if (CollidePoint(center_)) {return true;}
 
-        for (int i = 0; i < points.Length; i++) {
-            if(su.CircleLineCollision(center, r, points[i], points[(i+1) % points.Length])) {return true;}
+            for (int i = 0; i < points.Length; i++) {
+                if(su.CircleLineCollision(center_, r, points[i], points[(i+1) % points.Length])) {return true;}
+            }
         }
 
         return false;

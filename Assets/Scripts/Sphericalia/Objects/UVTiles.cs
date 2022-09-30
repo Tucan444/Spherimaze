@@ -247,10 +247,10 @@ public class UVTiles : MonoBehaviour
     }
 
     IEnumerator Destroy(GameObject go)
-    {
+     {
         yield return null;
         DestroyImmediate(go);
-    }
+     }
 
     void Start() {
         SphShape[] shapes_ = GetComponentsInChildren<SphShape>();

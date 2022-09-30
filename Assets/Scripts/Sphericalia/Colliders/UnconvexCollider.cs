@@ -6,6 +6,8 @@ using UnityEngine;
 public class UnconvexCollider
 {
     Vector3[] points;
+    Vector3 center;
+    float maxLen = 0;
 
     List<Vector3[]> currentShapes;
     float[] currentAngles;
@@ -24,6 +26,8 @@ public class UnconvexCollider
     public UnconvexCollider(Vector3[] points_, Color c_, bool invisible_=false, bool empty_ = false) {
         points = (Vector3[])points_.Clone();
         color = c_;
+        center = ComputeCenter(points);
+        ComputeMaxLen();
         
         currentShapes = new List<Vector3[]>();
         shapesToDo = new List<Vector3[]>();
@@ -44,6 +48,8 @@ public class UnconvexCollider
     public void Update(Vector3[] points_, Color c_, bool invisible_=false, bool empty_ = false) {
         points = (Vector3[])points_.Clone();
         color = c_;
+        center = ComputeCenter(points);
+        ComputeMaxLen();
         
         currentShapes = new List<Vector3[]>();
         shapesToDo = new List<Vector3[]>();
@@ -61,6 +67,7 @@ public class UnconvexCollider
     }
 
     public void MoveRotate(Quaternion q) {
+        center = q * center;
         for (int i = 0; i < points.Length; i++) {
             points[i] = q * points[i];
         }
@@ -80,6 +87,23 @@ public class UnconvexCollider
         {
             finalShapes[i].c = color;
             triangles[i].color = color;
+        }
+    }
+
+    Vector3 ComputeCenter(Vector3[] points_) {
+        Vector3 center_ = new Vector3();
+        for (int i = 0; i < points_.Length; i++) {
+            center_ += points_[i];
+        }
+        center_ = center_.normalized;
+        return center_;
+    }
+
+    void ComputeMaxLen() {
+        maxLen = 0;
+        for (int i = 0; i < points.Length; i++)
+        {
+            maxLen = Mathf.Max(maxLen, su.SphDistance(center, points[i]));
         }
     }
 
@@ -298,10 +322,12 @@ public class UnconvexCollider
         return false;
     }
 
-    public bool CollideCircle(Vector3 center, float r) {
+    public bool CollideCircle(Vector3 center_, float r) {
         if (empty) {return false;}
-        for (int i = 0; i < finalShapes.Count; i++) {
-            if (finalShapes[i].CollideCircle(center, r)) {return true;}
+        if (su.SphDistance(center, center_) <= maxLen + r) {
+            for (int i = 0; i < finalShapes.Count; i++) {
+                if (finalShapes[i].CollideCircle(center_, r)) {return true;}
+            }
         }
 
         return false;

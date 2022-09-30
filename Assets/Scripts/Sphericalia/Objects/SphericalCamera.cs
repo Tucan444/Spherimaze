@@ -20,6 +20,7 @@ public class SphericalCamera : MonoBehaviour
     public bool isCollider = true;
     public bool triggers = true;
     [Range(0, Mathf.PI)] public float colliderR = 0.1f;
+    public bool sideWalking = false;
     public bool pinScreenToPlayer = false;
     public bool noWidthControl = false;
 
@@ -31,6 +32,7 @@ public class SphericalCamera : MonoBehaviour
     [HideInInspector] public Quaternion screenQ = Quaternion.identity;
     Quaternion moveQ;
     Quaternion Q = Quaternion.identity;
+    Quaternion qq = Quaternion.identity;
 
     Vector3[][] renderRays;
     [HideInInspector] public Vector3[] sendRays;
@@ -39,6 +41,7 @@ public class SphericalCamera : MonoBehaviour
     SphSpaceManager ssm;
     SphericalUtilities su = new SphericalUtilities();
 
+    [HideInInspector] public List<CameraMovement> cameraMoves = new List<CameraMovement>();
     Vector2 playerInput = new Vector2();
 
     public void GetDefaultSetup() {
@@ -259,23 +262,63 @@ public class SphericalCamera : MonoBehaviour
     void Update()
     {
         transform.position = position;
-        if (isCollider) {
-            MoveWithCollision(playerInput[1] * speed * Time.deltaTime);
-        } else {Move(playerInput[1] * speed * Time.deltaTime);}
-        Rotate(playerInput[0] * turnSpeed * Time.deltaTime);
+        if (!sideWalking) {
+            if (isCollider) {
+                MoveWithCollision(playerInput[1] * speed * Time.deltaTime);
+            } else {Move(playerInput[1] * speed * Time.deltaTime);}
+            Rotate(playerInput[0] * turnSpeed * Time.deltaTime);
+        } else {
+            if (playerInput.sqrMagnitude > 0) {
+                float angleA = -su.Rad2Deg * (Mathf.Atan2(playerInput.y, playerInput.x) - su.HalfPI);
+                qq = Quaternion.AngleAxis(angleA, position);
+                direction = qq * direction;
+                if (isCollider) {
+                    MoveWithCollision(speed * Time.deltaTime);
+                } else {Move(speed * Time.deltaTime);}
+                qq = Quaternion.identity;
+            }
+        }
 
         if (triggers) {
             ssm.CollideTriggerCircle(position, colliderR);
         }
+
+        cameraMoves = new List<CameraMovement>();
     }
 
     public void QuitApp() {Application.Quit();}
 
-    public void Move(float rAngle) {
+    public Quaternion GetMoves() {
+        Quaternion cameraMove = Quaternion.identity;
+        for (int i = 0; i < cameraMoves.Count; i++)
+        {
+            cameraMove = cameraMoves[i].q * cameraMove;
+        }
+        if (!float.IsNaN(cameraMove.x)) {
+        return cameraMove;} else {
+            return Quaternion.identity;
+        }
+    }
 
-        moveQ = Quaternion.AngleAxis(rAngle, Vector3.Cross(position, direction));
+    public Quaternion[] GetMovesVariants(Quaternion[] rotQ) {
+        Quaternion[] variants = new Quaternion[4] {Quaternion.identity, Quaternion.identity, Quaternion.identity, Quaternion.identity};
+        for (int i = 0; i < cameraMoves.Count; i++)
+        {
+            variants[0] = Quaternion.AngleAxis(cameraMoves[i].angle*0.5f, Vector3.Cross(position, rotQ[0] * cameraMoves[i].target)) * variants[0];
+            variants[1] = Quaternion.AngleAxis(cameraMoves[i].angle*0.75f, Vector3.Cross(position, rotQ[1] * cameraMoves[i].target)) * variants[1];
+            variants[2] = Quaternion.AngleAxis(-cameraMoves[i].angle*0.75f, Vector3.Cross(position, rotQ[1] * cameraMoves[i].target)) * variants[2];
+            variants[3] = Quaternion.AngleAxis(cameraMoves[i].angle*0.5f, Vector3.Cross(position, rotQ[0] * cameraMoves[i].target)) * variants[3];
+        }
+        if (!float.IsNaN(variants[0].x) && !float.IsNaN(variants[1].x) && !float.IsNaN(variants[2].x) && !float.IsNaN(variants[3].x)) {
+        return variants;} else {
+            return new Quaternion[4] {Quaternion.identity, Quaternion.identity, Quaternion.identity, Quaternion.identity};
+        }
+    }
+
+    public void Move(float rAngle) {
+        moveQ = Quaternion.AngleAxis(rAngle, Vector3.Cross(position, direction)) * GetMoves();
         position = moveQ * position;
-        direction = moveQ * direction;
+        direction = moveQ * (Quaternion.Inverse(qq) * direction);
 
         totalQ = moveQ * totalQ;
         if (pinScreenToPlayer) {
@@ -292,11 +335,13 @@ public class SphericalCamera : MonoBehaviour
             Quaternion.AngleAxis(60, position)
         };
 
-        moveQ = Quaternion.AngleAxis(rAngle, Vector3.Cross(position, direction));
-        Quaternion moveQ1 = Quaternion.AngleAxis(rAngle*0.5f, Vector3.Cross(position, rotQ[0] * direction));
-        Quaternion moveQ2 = Quaternion.AngleAxis(rAngle*0.75f, Vector3.Cross(position, rotQ[1] * direction));
-        Quaternion moveQ3 = Quaternion.AngleAxis(-rAngle*0.75f, Vector3.Cross(position, rotQ[1] * direction));
-        Quaternion moveQ4 = Quaternion.AngleAxis(-rAngle*0.5f, Vector3.Cross(position, rotQ[0] * direction));
+        Quaternion cameraMovesQ = GetMoves();
+        Quaternion[] variants = GetMovesVariants(rotQ); 
+        moveQ = Quaternion.AngleAxis(rAngle, Vector3.Cross(position, direction)) * cameraMovesQ;
+        Quaternion moveQ1 = Quaternion.AngleAxis(rAngle*0.5f, Vector3.Cross(position, rotQ[0] * direction)) * variants[0];
+        Quaternion moveQ2 = Quaternion.AngleAxis(rAngle*0.75f, Vector3.Cross(position, rotQ[1] * direction)) * variants[1];
+        Quaternion moveQ3 = Quaternion.AngleAxis(-rAngle*0.75f, Vector3.Cross(position, rotQ[1] * direction)) * variants[2];
+        Quaternion moveQ4 = Quaternion.AngleAxis(-rAngle*0.5f, Vector3.Cross(position, rotQ[0] * direction)) * variants[3];
         bool[] checks = new bool[5] {CheckMove(moveQ1), CheckMove(moveQ2), CheckMove(moveQ, triggers), CheckMove(moveQ3), CheckMove(moveQ4)};
 
         if (checks[2]) {
@@ -309,7 +354,7 @@ public class SphericalCamera : MonoBehaviour
         }
         
         position = moveQ * position;
-        direction = moveQ * direction;
+        direction = moveQ * (Quaternion.Inverse(qq) * direction);
 
         totalQ = moveQ * totalQ;
         if (pinScreenToPlayer) {
@@ -351,8 +396,26 @@ public class SphericalCamera : MonoBehaviour
         return (screenQ * ray).normalized;
     }
 
+    // alings direction in opposite of target
+    public void AlignDirectionAgainstTarget(Vector3 target, float t) {
+        float d = su.SphDistance(direction, su.GetPlaneVector(position, su.SphLerp(target, position, 2)));
+        Rotate(su.Rad2Deg * d * t);
+    }
+
     public void OnMovement(InputAction.CallbackContext context) {
         Vector2 direction = context.ReadValue<Vector2>();
         playerInput = direction;
+    }
+}
+
+
+public class CameraMovement {
+    public Quaternion q;
+    public Vector3 target;
+    public float angle;
+    public CameraMovement(Vector3 cameraPos, Vector3 target_, float angle_) {
+        target = target_;
+        angle = angle_;
+        q = Quaternion.AngleAxis(angle, Vector3.Cross(cameraPos, target));
     }
 }

@@ -9,6 +9,7 @@ public class QuadCollider
     Vector3[] normals;
     Vector3[] mids;
     Color c;
+    float checkLen = 0;
 
     public QuadS q;
 
@@ -24,6 +25,7 @@ public class QuadCollider
         normals = new Vector3[points.Length];
         mids = new Vector3[points.Length];
         center = ComputeCenter(points);
+        checkLen = su.SphDistance(center, verts[0]);
 
         ComputeNormalsAndMids();
         CreateQuad();
@@ -39,6 +41,7 @@ public class QuadCollider
         normals = new Vector3[points.Length];
         mids = new Vector3[points.Length];
         center = ComputeCenter(points);
+        checkLen = su.SphDistance(center, verts[0]);
 
         ComputeNormalsAndMids();
         CreateQuad();
@@ -49,11 +52,12 @@ public class QuadCollider
     }
 
     public void MoveRotate(Quaternion qua) {
+        center = qua * center;
+
         for (int i = 0; i < points.Length; i++) {
             points[i] = qua * points[i];
             normals[i] = qua * normals[i];
             mids[i] = qua * mids[i];
-            center = qua * center;
 
             if (!empty && !invisible) {
                 CreateQuad();
@@ -110,12 +114,14 @@ public class QuadCollider
         return true;
     }
 
-    public bool CollideCircle(Vector3 center, float r) {
+    public bool CollideCircle(Vector3 center_, float r) {
         if (empty) {return false;}
-        if (CollidePoint(center)) {return true;}
+        if (su.SphDistance(center, center_) <= checkLen+r) {
+            if (CollidePoint(center_)) {return true;}
 
-        for (int i = 0; i < points.Length; i++) {
-            if(su.CircleLineCollision(center, r, points[i], points[(i+1) % points.Length])) {return true;}
+            for (int i = 0; i < points.Length; i++) {
+                if(su.CircleLineCollision(center_, r, points[i], points[(i+1) % points.Length])) {return true;}
+            }
         }
 
         return false;
